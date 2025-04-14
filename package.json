@@ -1,0 +1,28 @@
+{
+  "name": "traderdaddy-hedera",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@types/node": "^22.14.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@h1deya/langchain-mcp-tools": "^0.2.1",
+    "@hashgraph/sdk": "^2.62.0",
+    "@langchain/core": "^0.3.44",
+    "@langchain/langgraph": "^0.2.63",
+    "@langchain/openai": "^0.5.5",
+    "dotenv": "^16.5.0",
+    "hedera-agent-kit": "^1.0.6",
+    "openapi-mcp-server": "^2.0.3",
+    "zod": "^3.24.2"
+  }
+}
