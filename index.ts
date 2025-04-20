@@ -8,6 +8,7 @@ import * as dotenv from "dotenv";
 import pkg from "whatsapp-web.js";
 const { Client, LocalAuth } = pkg;
 import qrcode from "qrcode-terminal";
+import { walletConnectManager } from "./walletconnect.js";
 
 // Load environment variables
 dotenv.config();
@@ -48,23 +49,76 @@ const agent = createReactAgent({
   checkpointSaver,
 });
 
-async function obtainAgentReply(userPrompt: string): Promise<string> {
-  const reply = await agent.invoke(
-    {
-      messages: [new HumanMessage(userPrompt)],
-    },
-    {
-      configurable: { thread_id: "0x0001" },
-    }
-  );
+// Command handlers
+type CommandHandler = (message: any) => Promise<string>;
+type CommandHandlers = {
+  [key: string]: CommandHandler;
+};
 
-  const lastMessage = reply.messages[reply.messages.length - 1];
-  const agentReply =
-    typeof lastMessage.content === "string"
-      ? lastMessage.content
-      : JSON.stringify(lastMessage.content);
-  return agentReply;
-}
+const commandHandlers: CommandHandlers = {
+  "/connect": async (message: any) => {
+    try {
+      if (walletConnectManager.isConnected(message.from)) {
+        return "You're already connected to a wallet. Use /disconnect first to connect to a different wallet.";
+      }
+
+      const uri = await walletConnectManager.createSession(message.from);
+
+      // Generate QR code for the URI
+      return `Scan this QR code with your Web3 wallet to connect:\n\n${uri}`;
+    } catch (error) {
+      console.error("Error creating WalletConnect session:", error);
+      return "Sorry, there was an error creating the wallet connection.";
+    }
+  },
+
+  "/disconnect": async (message: any) => {
+    try {
+      await walletConnectManager.disconnect(message.from);
+      return "Wallet disconnected successfully.";
+    } catch (error) {
+      console.error("Error disconnecting wallet:", error);
+      return "Sorry, there was an error disconnecting the wallet.";
+    }
+  },
+
+  "/sign": async (message: any) => {
+    try {
+      if (!walletConnectManager.isConnected(message.from)) {
+        return "Please connect your wallet first using /connect";
+      }
+
+      const messageToSign = message.body.replace("/sign", "").trim();
+      if (!messageToSign) {
+        return "Please provide a message to sign. Usage: /sign <message>";
+      }
+
+      const signature = await walletConnectManager.signMessage(
+        message.from,
+        messageToSign
+      );
+      return `Message signed successfully!\nSignature: ${signature}`;
+    } catch (error) {
+      console.error("Error signing message:", error);
+      return "Sorry, there was an error signing the message.";
+    }
+  },
+
+  "/wallet": async (message: any) => {
+    try {
+      const session = walletConnectManager.getSession(message.from);
+      if (!session) {
+        return "No wallet connected. Use /connect to connect your wallet.";
+      }
+
+      const account = session.namespaces.eip155.accounts[0].split(":")[2];
+      return `Connected wallet address: ${account}`;
+    } catch (error) {
+      console.error("Error getting wallet info:", error);
+      return "Sorry, there was an error retrieving wallet information.";
+    }
+  },
+};
 
 // WhatsApp client event handlers
 client.on("qr", (qr) => {
@@ -88,10 +142,22 @@ client.on("message_create", async (message) => {
     message.type
   );
 
-  // Handle other messages with the agent
   if (message.body && message.from.toString() != "918682028711@c.us") {
     try {
-      // Get the chat's wallet address
+      // Check if the message is a command
+      const command = message.body.split(" ")[0].toLowerCase();
+      if (command in commandHandlers) {
+        const response = await commandHandlers[command](message);
+        await message.reply(response);
+        return;
+      }
+
+      // Handle regular messages with the agent
+      const walletAddress = walletConnectManager.isConnected(message.from)
+        ? walletConnectManager
+            .getSession(message.from)
+            ?.namespaces.eip155.accounts[0].split(":")[2]
+        : "";
 
       const response = await agent.invoke({
         messages: [
@@ -101,7 +167,8 @@ client.on("message_create", async (message) => {
               message.from.toString() +
               " Chat ID: " +
               message.from.toString() +
-              " Wallet Address: "
+              " Wallet Address: " +
+              walletAddress
           ),
         ],
       });
@@ -112,10 +179,9 @@ client.on("message_create", async (message) => {
           ? lastMessage.content
           : JSON.stringify(lastMessage.content);
 
-      // Send the agent's response back to WhatsApp
       await message.reply(agentReply);
     } catch (error) {
-      console.error("Error processing agent request:", error);
+      console.error("Error processing request:", error);
       await message.reply(
         "Sorry, I encountered an error processing your request."
       );
@@ -124,6 +190,15 @@ client.on("message_create", async (message) => {
 });
 
 async function main(): Promise<void> {
+  try {
+    // Initialize WalletConnect
+    await walletConnectManager.initialize();
+    console.log("WalletConnect initialized successfully!");
+  } catch (error) {
+    console.error("Error initializing WalletConnect:", error);
+    process.exit(1);
+  }
+
   // Initialize WhatsApp client with retry logic
   let initAttempts = 0;
   const maxAttempts = 3;
