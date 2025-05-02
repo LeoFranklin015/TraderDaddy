@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+- Always check if you're in the right directory before trying to install something
+- Always check if there are no lint errors or any type error before finishing up your work.

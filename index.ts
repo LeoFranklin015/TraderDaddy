@@ -1,203 +1,193 @@
-import process from "node:process";
-import { MemorySaver } from "@langchain/langgraph";
-import { createReactAgent, ToolNode } from "@langchain/langgraph/prebuilt";
-import { HumanMessage } from "@langchain/core/messages";
-import { HederaAgentKit, createHederaTools } from "hedera-agent-kit";
-import { ChatOpenAI } from "@langchain/openai";
-import * as dotenv from "dotenv";
-import pkg from "whatsapp-web.js";
-const { Client, LocalAuth } = pkg;
+import { Client, LocalAuth } from "whatsapp-web.js";
 import qrcode from "qrcode-terminal";
-import { walletConnectManager } from "./walletconnect.js";
+import { WalletManager } from "./utils/WalletManager";
+import { HederaWalletManager } from "./utils/HederaWalletManager";
+import { createPriceTool } from "./tools/price";
+import { createHederaTransferTool } from "./tools/hederaTransfer";
+import { createHederaUrlVerifyTool } from "./tools/hederaUrlVerify";
+import { createGMXTradingTool } from "./tools/gmxTrading";
+import { handleGMXCommand } from "./utils/gmx/commands";
+import * as fs from "fs-extra";
+import * as path from "path";
+import {
+  HELP_MESSAGE,
+  GMX_HELP_MESSAGE,
+  HEDERA_HELP_MESSAGE,
+} from "./utils/constants";
 
-// Load environment variables
-dotenv.config();
+require("dotenv").config();
+
+// Function to clear all session data
+async function clearAllSessionData() {
+  try {
+    const authDir = path.join(process.cwd(), ".wwebjs_auth");
+    const cacheDir = path.join(process.cwd(), ".wwebjs_cache");
+
+    if (fs.existsSync(authDir)) {
+      await fs.remove(authDir);
+      console.log("Auth session data cleared successfully");
+    }
+
+    if (fs.existsSync(cacheDir)) {
+      await fs.remove(cacheDir);
+      console.log("Cache data cleared successfully");
+    }
+  } catch (error) {
+    console.error("Error clearing session data:", error);
+  }
+}
 
 // Create a new WhatsApp client instance
 const client = new Client({
-  authStrategy: new LocalAuth(),
+  authStrategy: new LocalAuth({
+    clientId: "new-session-" + Date.now(),
+    dataPath: path.join(process.cwd(), ".wwebjs_auth"),
+  }),
   puppeteer: {
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    executablePath:
+      process.env.CHROME_PATH ||
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     timeout: 60000,
   },
 });
 
-// Create OpenAI LLM instance
-const llm = new ChatOpenAI({
-  modelName: "gpt-4o-mini",
-  temperature: 0.7,
-  maxTokens: 1000,
-});
+// Initialize WalletManager for multi-chain support (Hedera and Arbitrum Sepolia)
+const walletManager = new WalletManager(client);
 
-// Initialize Hedera client with account ID and private key from environment variables
-const hederaAgentKit = new HederaAgentKit(
-  process.env.HEDERA_ACCOUNT_ID!,
-  process.env.HEDERA_ACCOUNT_PRIVATE_KEY!,
-  process.env.HEDERA_ACCOUNT_PUBLIC_KEY!,
-  "testnet"
+// Initialize WalletManager for Hedera-specific functionality
+const hederaManager = new HederaWalletManager(
+  (process.env.HEDERA_NETWORK as "mainnet" | "testnet") || "testnet"
 );
-const hederaAgentKitTools = createHederaTools(hederaAgentKit);
 
-const toolsNode = new ToolNode(hederaAgentKitTools);
+// Function to restart WhatsApp Web session
+async function restartWhatsAppSession() {
+  try {
+    console.log("Restarting WhatsApp Web session...");
+    await clearAllSessionData();
+    await client.destroy();
+    await client.logout();
+    await client.initialize();
+    console.log("WhatsApp Web session restarted successfully!");
+  } catch (error: unknown) {
+    console.error("Error restarting WhatsApp Web session:", error);
+    throw error;
+  }
+}
 
-const checkpointSaver = new MemorySaver();
+(async (): Promise<void> => {
+  await clearAllSessionData();
 
-const agent = createReactAgent({
-  llm,
-  tools: toolsNode,
-  checkpointSaver,
-});
+  // WhatsApp client event handlers
+  client.on("qr", (qr) => {
+    console.log("QR RECEIVED", qr);
+    qrcode.generate(qr, { small: true });
+  });
 
-// Command handlers
-type CommandHandler = (message: any) => Promise<string>;
-type CommandHandlers = {
-  [key: string]: CommandHandler;
-};
+  client.once("ready", () => {
+    console.log("WhatsApp Client is ready!");
+  });
 
-const commandHandlers: CommandHandlers = {
-  "/connect": async (message: any) => {
+  // Handle WalletConnect and Hedera messages
+  client.on("message", async (message) => {
     try {
-      if (walletConnectManager.isConnected(message.from)) {
-        return "You're already connected to a wallet. Use /disconnect first to connect to a different wallet.";
-      }
-
-      const uri = await walletConnectManager.createSession(message.from);
-
-      // Generate QR code for the URI
-      return `Scan this QR code with your Web3 wallet to connect:\n\n${uri}`;
-    } catch (error) {
-      console.error("Error creating WalletConnect session:", error);
-      return "Sorry, there was an error creating the wallet connection.";
-    }
-  },
-
-  "/disconnect": async (message: any) => {
-    try {
-      await walletConnectManager.disconnect(message.from);
-      return "Wallet disconnected successfully.";
-    } catch (error) {
-      console.error("Error disconnecting wallet:", error);
-      return "Sorry, there was an error disconnecting the wallet.";
-    }
-  },
-
-  "/sign": async (message: any) => {
-    try {
-      if (!walletConnectManager.isConnected(message.from)) {
-        return "Please connect your wallet first using /connect";
-      }
-
-      const messageToSign = message.body.replace("/sign", "").trim();
-      if (!messageToSign) {
-        return "Please provide a message to sign. Usage: /sign <message>";
-      }
-
-      const signature = await walletConnectManager.signMessage(
-        message.from,
-        messageToSign
-      );
-      return `Message signed successfully!\nSignature: ${signature}`;
-    } catch (error) {
-      console.error("Error signing message:", error);
-      return "Sorry, there was an error signing the message.";
-    }
-  },
-
-  "/wallet": async (message: any) => {
-    try {
-      const session = walletConnectManager.getSession(message.from);
-      if (!session) {
-        return "No wallet connected. Use /connect to connect your wallet.";
-      }
-
-      const account = session.namespaces.eip155.accounts[0].split(":")[2];
-      return `Connected wallet address: ${account}`;
-    } catch (error) {
-      console.error("Error getting wallet info:", error);
-      return "Sorry, there was an error retrieving wallet information.";
-    }
-  },
-};
-
-// WhatsApp client event handlers
-client.on("qr", (qr) => {
-  console.log("QR RECEIVED", qr);
-  qrcode.generate(qr, { small: true });
-});
-
-client.once("ready", () => {
-  console.log("WhatsApp Client is ready!");
-});
-
-client.on("message_create", async (message) => {
-  console.log(
-    "\n\nFrom",
-    message.from.toString(),
-    "Message",
-    message.body,
-    "To: ",
-    message.to.toString(),
-    "Type: ",
-    message.type
-  );
-
-  if (message.body && message.from.toString() != "918682028711@c.us") {
-    try {
-      // Check if the message is a command
-      const command = message.body.split(" ")[0].toLowerCase();
-      if (command in commandHandlers) {
-        const response = await commandHandlers[command](message);
-        await message.reply(response);
+      // Handle WalletConnect URIs
+      if (message.body.startsWith("wc:")) {
+        await walletManager.handleWalletConnectUri(message);
         return;
       }
 
-      // Handle regular messages with the agent
-      const walletAddress = walletConnectManager.isConnected(message.from)
-        ? walletConnectManager
-            .getSession(message.from)
-            ?.namespaces.eip155.accounts[0].split(":")[2]
-        : "";
+      // Try to handle Hedera commands
+      const hederaResponse = await hederaManager.handleMessage(message);
+      if (hederaResponse) {
+        message.reply(hederaResponse);
+        return;
+      }
+    } catch (error) {
+      console.error("Error in message handling:", error);
+    }
+  });
 
-      const response = await agent.invoke({
-        messages: [
-          new HumanMessage(
-            message.body +
-              " From: " +
-              message.from.toString() +
-              " Chat ID: " +
-              message.from.toString() +
-              " Wallet Address: " +
-              walletAddress
-          ),
-        ],
-      });
+  client.on("message_create", async (message) => {
+    if (message.from.toString() === "918682028711@c.us") {
+      // Bot's own messages, ignore
+      return;
+    }
 
-      const lastMessage = response.messages[response.messages.length - 1];
-      const agentReply =
-        typeof lastMessage.content === "string"
-          ? lastMessage.content
-          : JSON.stringify(lastMessage.content);
+    console.log(
+      "\n\nFrom",
+      message.from.toString(),
+      "Message",
+      message.body,
+      "To: ",
+      message.to.toString(),
+      "Type: ",
+      message.type
+    );
 
-      await message.reply(agentReply);
+    try {
+      // Make sure message body exists
+      const messageText = message.body || "";
+      const command = messageText.trim().toLowerCase();
+
+      // Show help message for new users or when requested
+      if (!command || command === "help" || command === "commands") {
+        await message.reply(HELP_MESSAGE);
+        return;
+      }
+
+      if (command === "gmx help") {
+        await message.reply(GMX_HELP_MESSAGE);
+        return;
+      }
+
+      if (command === "hedera help") {
+        await message.reply(HEDERA_HELP_MESSAGE);
+        return;
+      }
+
+      // Handle WalletConnect URIs
+      if (messageText.startsWith("wc:")) {
+        await walletManager.handleWalletConnectUri(message);
+        return;
+      }
+
+      // Handle Hedera commands
+      const hederaResponse = await hederaManager.handleMessage(message);
+      if (hederaResponse) {
+        await message.reply(hederaResponse);
+        return;
+      }
+
+      // Handle GMX commands
+      if (command.startsWith("gmx ")) {
+        const gmxResponse = await handleGMXCommand(message, walletManager);
+        if (gmxResponse) {
+          await message.reply(gmxResponse);
+          return;
+        }
+      }
+
+      // Create wallet reminder for any other command
+      if (!(await walletManager.getWalletAddress(message.from.toString()))) {
+        await message.reply(
+          "You don't have a wallet yet! Please create one first by sending 'create wallet' or 'create hedera wallet'."
+        );
+        return;
+      }
+
+      // For any other command, use a simple response
+      await message.reply(
+        "I didn't understand that command. Please try 'help' for a list of available commands."
+      );
     } catch (error) {
       console.error("Error processing request:", error);
       await message.reply(
-        "Sorry, I encountered an error processing your request."
+        "Sorry, I encountered an error processing your request. Please try again with 'help' to see available commands."
       );
     }
-  }
-});
-
-async function main(): Promise<void> {
-  try {
-    // Initialize WalletConnect
-    await walletConnectManager.initialize();
-    console.log("WalletConnect initialized successfully!");
-  } catch (error) {
-    console.error("Error initializing WalletConnect:", error);
-    process.exit(1);
-  }
+  });
 
   // Initialize WhatsApp client with retry logic
   let initAttempts = 0;
@@ -218,7 +208,6 @@ async function main(): Promise<void> {
             initAttempts + 1
           }/${maxAttempts})...`
         );
-        // Wait 5 seconds before retrying
         await new Promise((resolve) => setTimeout(resolve, 5000));
         await initializeWithRetry();
       } else {
@@ -229,6 +218,4 @@ async function main(): Promise<void> {
   };
 
   await initializeWithRetry();
-}
-
-main().catch(console.error);
+})();
