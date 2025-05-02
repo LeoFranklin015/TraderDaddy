@@ -10,10 +10,10 @@ export const createHederaTransferTool = (
 ) => {
   return new DynamicStructuredTool({
     name: "hedera_transfer",
-    description: "Send RBTC from the user's Hedera wallet to another address",
+    description: "Send HBAR from the user's Hedera wallet to another address",
     schema: z
       .object({
-        amount: z.string().describe("The amount of RBTC to transfer"),
+        amount: z.string().describe("The amount of HBAR to transfer"),
         recipient: z.string().describe("The recipient's Hedera address"),
         memo: z
           .string()
@@ -47,11 +47,11 @@ export const createHederaTransferTool = (
         if (parseFloat(balance) < parseFloat(input.amount)) {
           return JSON.stringify({
             success: false,
-            message: `Insufficient balance. You have ${balance} RBTC, but tried to send ${input.amount} RBTC.`,
+            message: `Insufficient balance. You have ${balance} HBAR, but tried to send ${input.amount} HBAR.`,
           });
         }
 
-        const txHash = await HederaWalletManager.sendRBTC(
+        const txHash = await HederaWalletManager.sendHBAR(
           input.chatId,
           input.recipient,
           input.amount,
@@ -63,7 +63,7 @@ export const createHederaTransferTool = (
           amount: input.amount,
           recipient: input.recipient,
           txHash: txHash,
-          message: `Successfully sent ${input.amount} RBTC to ${input.recipient}`,
+          message: `Successfully sent ${input.amount} HBAR to ${input.recipient}`,
           timestamp: new Date().toISOString(),
         };
 

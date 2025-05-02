@@ -69,7 +69,7 @@ export class HederaPaymentManager {
       const balance = await this.provider.getBalance(address);
 
       console.log(`Initialized Hedera wallet: ${address}`);
-      console.log(`Wallet balance: ${ethers.formatEther(balance)} RBTC`);
+      console.log(`Wallet balance: ${ethers.formatEther(balance)} HBAR`);
 
       return true;
     } catch (error) {
@@ -214,7 +214,7 @@ export class HederaPaymentManager {
       const startBlock = fromBlock || blockNumber - 1000; // Last 1000 blocks if not specified
 
       console.log(
-        `Checking for payment of ${expectedAmount} RBTC to ${address}...`
+        `Checking for payment of ${expectedAmount} HBAR to ${address}...`
       );
       console.log(`Scanning blocks from ${startBlock} to ${blockNumber}`);
 

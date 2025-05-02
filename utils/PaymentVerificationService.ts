@@ -70,7 +70,7 @@ export class PaymentVerificationService {
     try {
       console.log(`Registering new payment request from ${request.dappUrl}`);
       console.log(
-        `Payment details: ${request.amount} RBTC to ${request.receiverAddress}`
+        `Payment details: ${request.amount} HBAR to ${request.receiverAddress}`
       );
 
       // Store the payment request

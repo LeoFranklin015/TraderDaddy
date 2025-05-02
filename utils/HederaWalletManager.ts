@@ -1,4 +1,6 @@
-import { Client, Message } from "whatsapp-web.js";
+import pkg from "whatsapp-web.js";
+const { Client } = pkg;
+import type { Message } from "whatsapp-web.js";
 import { ethers } from "ethers";
 import { privateKeyToAccount } from "viem/accounts";
 import { createWalletClient, http } from "viem";
@@ -8,7 +10,7 @@ import {
   HELP_MESSAGE,
   GMX_HELP_MESSAGE,
   HEDERA_HELP_MESSAGE,
-} from "./constants";
+} from "./constants.js";
 import * as path from "path";
 import * as bip39 from "bip39";
 
@@ -213,14 +215,14 @@ export class HederaWalletManager {
     const provider = this.providers[this.network];
     const balance = await provider.getBalance(wallet.address);
 
-    // Format balance in RBTC
+    // Format balance in HBAR
     return ethers.formatEther(balance);
   }
 
   /**
-   * Send RBTC from one wallet to another
+   * Send HBAR from one wallet to another
    */
-  public async sendRBTC(
+  public async sendHBAR(
     chatId: string,
     toAddress: string,
     amount: string,
@@ -356,22 +358,22 @@ export class HederaWalletManager {
 
       try {
         const balance = await this.getBalance(chatId);
-        return `*Hedera Balance:*\n${balance} RBTC`;
+        return `*Hedera Balance:*\n${balance} HBAR`;
       } catch (error) {
         console.error("Error getting balance:", error);
         return "❌ *Error*\n\nFailed to get your balance. Please try again later.";
       }
     }
 
-    // Command: send <amount> RBTC to <address> or send <amount> to <address>
+    // Command: send <amount> HBAR to <address> or send <amount> to <address>
     if (
-      (command.startsWith("send ") && command.includes(" rbtc to ")) ||
+      (command.startsWith("send ") && command.includes(" HBAR to ")) ||
       (command.startsWith("send ") && command.includes(" to "))
     ) {
       let amount, toAddress;
 
-      if (command.includes(" rbtc to ")) {
-        const parts = command.split(" rbtc to ");
+      if (command.includes(" HBAR to ")) {
+        const parts = command.split(" HBAR to ");
         amount = parts[0].replace("send ", "").trim();
         toAddress = parts[1].trim();
       } else {
@@ -399,25 +401,25 @@ export class HederaWalletManager {
         // Check balance
         const balance = await this.getBalance(chatId);
         if (parseFloat(balance) < amountNum) {
-          return `❌ *Insufficient Balance*\n\nYou only have ${balance} RBTC, but tried to send ${amount} RBTC.`;
+          return `❌ *Insufficient Balance*\n\nYou only have ${balance} HBAR, but tried to send ${amount} HBAR.`;
         }
 
-        // Send RBTC
-        const txHash = await this.sendRBTC(chatId, toAddress, amount);
+        // Send HBAR
+        const txHash = await this.sendHBAR(chatId, toAddress, amount);
         const explorerUrl = `${
           HEDERA_NETWORKS[this.network].explorer
         }/tx/${txHash}`;
 
         return (
           `✅ *Transaction Sent*\n\n` +
-          `*Amount:* ${amount} RBTC\n` +
+          `*Amount:* ${amount} HBAR\n` +
           `*To:* ${toAddress}\n` +
           `*Transaction Hash:* \`${txHash}\`\n\n` +
           `*View on Explorer:*\n${explorerUrl}`
         );
       } catch (error) {
-        console.error("Error sending RBTC:", error);
-        return "❌ *Transaction Failed*\n\nFailed to send RBTC. Please try again later.";
+        console.error("Error sending HBAR:", error);
+        return "❌ *Transaction Failed*\n\nFailed to send HBAR. Please try again later.";
       }
     }
 

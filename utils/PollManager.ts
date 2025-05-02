@@ -1,4 +1,6 @@
-import { Client, Message } from "whatsapp-web.js";
+import pkg from "whatsapp-web.js";
+const { Client } = pkg;
+import type { Client as WhatsAppClient, Message } from "whatsapp-web.js";
 import { Poll, PollMessage, PollReaction, PollVote } from "./types";
 import {
   createPollMessage,
@@ -9,9 +11,9 @@ import {
 
 export class PollManager {
   private activePolls: Map<string, Poll>;
-  private client: Client;
+  private client: WhatsAppClient;
 
-  constructor(client: Client) {
+  constructor(client: WhatsAppClient) {
     this.activePolls = new Map();
     this.client = client;
     this.setupEventListeners();

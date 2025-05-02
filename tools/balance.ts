@@ -1,11 +1,5 @@
 import { Tool } from "langchain/tools";
-import {
-  celoAlfajores,
-  polygonAmoy,
-  hederaTestnet,
-  optimismSepolia,
-  arbitrumSepolia,
-} from "viem/chains";
+import { hederaTestnet } from "viem/chains";
 
 interface JsonRpcResponse {
   jsonrpc: string;
@@ -19,25 +13,13 @@ interface JsonRpcResponse {
 
 // Supported chains configuration
 const SUPPORTED_CHAINS = {
-  44787: celoAlfajores,
-  80001: polygonAmoy,
   296: hederaTestnet,
-  11155420: optimismSepolia,
-  421614: arbitrumSepolia,
 } as const;
 
 // Chain name to ID mapping
 const CHAIN_NAME_TO_ID: { [key: string]: number } = {
-  celo: 44787,
-  "celo alfajores": 44787,
-  polygon: 80001,
-  "polygon amoy": 80001,
   hedera: 296,
   "hedera testnet": 296,
-  optimism: 11155420,
-  "optimism sepolia": 11155420,
-  arbitrum: 421614,
-  "arbitrum sepolia": 421614,
 };
 
 type SupportedChainId = keyof typeof SUPPORTED_CHAINS;
@@ -51,7 +33,7 @@ class WalletBalanceTool extends Tool {
     try {
       // Parse input to get address and optional chain
       let walletAddress: string;
-      let chainId: number = 11155420; // Default to Optimism Sepolia
+      let chainId: number = 296; // Default to Optimism Sepolia
 
       // Validate input is not empty
       if (!input || input.trim() === "") {

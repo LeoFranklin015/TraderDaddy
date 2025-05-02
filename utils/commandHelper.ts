@@ -7,8 +7,8 @@ export const helpCommands = {
 • *import wallet <mnemonic>* - Import wallet from recovery phrase
 • *show mnemonic* - Display your recovery phrase
 • *my address* - Show your wallet addresses
-• *rbtc balance* - Check your RBTC balance
-• *send <amount> RBTC to <address>* - Send RBTC tokens
+• *HBAR balance* - Check your HBAR balance
+• *send <amount> HBAR to <address>* - Send HBAR tokens
 • *verify url <url>* - Verify if a URL is from Hedera
 
 *GMX Trading Commands (Arbitrum Sepolia):*
@@ -36,10 +36,10 @@ Note: Your wallet works on both Hedera and Arbitrum Sepolia chains.
 • *import wallet <mnemonic>* - Import existing wallet
 • *show mnemonic* - Show recovery phrase
 • *my address* - Show your RSK address
-• *rbtc balance* - Check RBTC balance
+• *HBAR balance* - Check HBAR balance
 
 *Transactions:*
-• *send <amount> RBTC to <address>* - Send RBTC
+• *send <amount> HBAR to <address>* - Send HBAR
 • *verify url <url>* - Verify Hedera URL/dApp
 
 *dApp Connection:*

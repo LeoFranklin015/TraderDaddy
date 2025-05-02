@@ -1,21 +1,29 @@
-import { Client, LocalAuth } from "whatsapp-web.js";
+import process from "node:process";
+import { MemorySaver } from "@langchain/langgraph";
+import { createReactAgent, ToolNode } from "@langchain/langgraph/prebuilt";
+import { HumanMessage } from "@langchain/core/messages";
+import { HederaAgentKit, createHederaTools } from "hedera-agent-kit";
+import { ChatOpenAI } from "@langchain/openai";
+import * as dotenv from "dotenv";
+import pkg from "whatsapp-web.js";
+const { Client, LocalAuth } = pkg;
 import qrcode from "qrcode-terminal";
-import { WalletManager } from "./utils/WalletManager";
-import { HederaWalletManager } from "./utils/HederaWalletManager";
-import { createPriceTool } from "./tools/price";
-import { createHederaTransferTool } from "./tools/hederaTransfer";
-import { createHederaUrlVerifyTool } from "./tools/hederaUrlVerify";
-import { createGMXTradingTool } from "./tools/gmxTrading";
-import { handleGMXCommand } from "./utils/gmx/commands";
+import { WalletManager } from "./utils/WalletManager.js";
+import { HederaWalletManager } from "./utils/HederaWalletManager.js";
+import { createPriceTool } from "./tools/price.js";
+import { createHederaTransferTool } from "./tools/hederaTransfer.js";
+import { createHederaUrlVerifyTool } from "./tools/hederaUrlVerify.js";
+import { createGMXTradingTool } from "./tools/gmxTrading.js";
+import { handleGMXCommand } from "./utils/gmx/commands.js";
 import * as fs from "fs-extra";
 import * as path from "path";
 import {
   HELP_MESSAGE,
   GMX_HELP_MESSAGE,
   HEDERA_HELP_MESSAGE,
-} from "./utils/constants";
+} from "./utils/constants.js";
 
-require("dotenv").config();
+dotenv.config();
 
 // Function to clear all session data
 async function clearAllSessionData() {

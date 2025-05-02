@@ -1,7 +1,9 @@
-import { Client, Message } from "whatsapp-web.js";
+import pkg from "whatsapp-web.js";
+const { Client } = pkg;
+import type { Client as WhatsAppClient, Message } from "whatsapp-web.js";
 import { privateKeyToAccount, type Account } from "viem/accounts";
 import { createWalletClient, type WalletClient, http, Chain } from "viem";
-import { hederaTestnet } from "viem/chains";
+import { hederaTestnet, arbitrumSepolia } from "viem/chains";
 import SignClient from "@walletconnect/sign-client";
 import { SessionTypes, SignClientTypes } from "@walletconnect/types";
 import { ethers } from "ethers";
@@ -33,15 +35,16 @@ interface RequiredNamespaces {
 // Supported chains configuration
 const SUPPORTED_CHAINS = {
   296: hederaTestnet,
+  421614: arbitrumSepolia,
 } as const;
 
-// For compatibility with dApps that don't natively support Hedera
+// For compatibility with dApps that don't natively support Hedera or Arbitrum Sepolia
 const CHAIN_MAPPING: Record<number, number> = {
   // Map common chains to Hedera Testnet
   1: 296, // Ethereum -> Hedera Testnet
-  42161: 296, // Arbitrum -> Hedera Testnet
+  42161: 421614, // Arbitrum -> Arbitrum Sepolia
   137: 296, // Polygon -> Hedera Testnet
-  10: 296, // Optimism -> Hedera Testnet
+  10: 421614, // Optimism -> Arbitrum Sepolia
   56: 296, // BSC -> Hedera Testnet
   43114: 296, // Avalanche -> Hedera Testnet
 };
@@ -50,14 +53,14 @@ type SupportedChainId = keyof typeof SUPPORTED_CHAINS;
 
 export class WalletManager {
   private chatWallets: Map<string, ChatWallet>;
-  private whatsappClient: Client;
+  private client: WhatsAppClient;
   private signClient: SignClient | null;
   private pendingRequests: Map<string, PendingRequest>;
   private lastPairedChatId: string | null;
 
-  constructor(whatsappClient: Client) {
+  constructor(client: WhatsAppClient) {
     this.chatWallets = new Map();
-    this.whatsappClient = whatsappClient;
+    this.client = client;
     this.signClient = null;
     this.pendingRequests = new Map();
     this.lastPairedChatId = null;
@@ -107,13 +110,30 @@ export class WalletManager {
       await this.handleSessionDelete(event);
     });
 
-    this.whatsappClient.on("message_reaction", async (event) => {
+    this.client.on("message_reaction", async (event) => {
       console.log("Received message reaction:", event);
       await this.handleReaction(event);
     });
   }
 
-  private getWalletClient(chatId: string, chainId: number): WalletClient {
+  public getChatWallet(chatId: string): ChatWallet {
+    if (!this.chatWallets.has(chatId)) {
+      // Generate deterministic private key from chatId
+      const hashedChatId = ethers.keccak256(ethers.toUtf8Bytes(chatId));
+      const privateKey = hashedChatId.slice(2) as `0x${string}`;
+      const account = privateKeyToAccount(`0x${privateKey}`);
+
+      this.chatWallets.set(chatId, {
+        account,
+        clients: new Map(), // Initialize empty clients map
+        wcSessions: new Map(),
+      });
+    }
+
+    return this.chatWallets.get(chatId)!;
+  }
+
+  public getWalletClient(chatId: string, chainId: number): WalletClient {
     const chatWallet = this.getChatWallet(chatId);
 
     if (!chatWallet.clients.has(chainId)) {
@@ -138,23 +158,6 @@ export class WalletManager {
     }
 
     return chatWallet.clients.get(chainId)!;
-  }
-
-  private getChatWallet(chatId: string): ChatWallet {
-    if (!this.chatWallets.has(chatId)) {
-      // Generate deterministic private key from chatId
-      const hashedChatId = ethers.keccak256(ethers.toUtf8Bytes(chatId));
-      const privateKey = hashedChatId.slice(2) as `0x${string}`;
-      const account = privateKeyToAccount(`0x${privateKey}`);
-
-      this.chatWallets.set(chatId, {
-        account,
-        clients: new Map(), // Initialize empty clients map
-        wcSessions: new Map(),
-      });
-    }
-
-    return this.chatWallets.get(chatId)!;
   }
 
   public async handleWalletConnectUri(message: Message) {
@@ -288,7 +291,7 @@ export class WalletManager {
       // Send confirmation message with supported chains
       const supportedChainsMsg = `• ${hederaTestnet.name} (296)`;
 
-      await this.whatsappClient.sendMessage(
+      await this.client.sendMessage(
         chatId,
         "✅ *WalletConnect Connected Successfully*\n\n" +
           `*App:* ${proposer.metadata.name}\n` +
@@ -303,7 +306,7 @@ export class WalletManager {
     } catch (error) {
       console.error("Error handling session proposal:", error);
       if (this.lastPairedChatId) {
-        await this.whatsappClient.sendMessage(
+        await this.client.sendMessage(
           this.lastPairedChatId,
           "❌ *Error*\n\nFailed to process the connection request. " +
             (error instanceof Error ? error.message : String(error))
@@ -350,10 +353,7 @@ export class WalletManager {
 
       messageText += "• React with 👍 to approve\n• React with 👎 to reject";
 
-      const message = await this.whatsappClient.sendMessage(
-        chatId,
-        messageText
-      );
+      const message = await this.client.sendMessage(chatId, messageText);
 
       this.pendingRequests.set(message.id._serialized, {
         chatId,
@@ -366,22 +366,30 @@ export class WalletManager {
     }
   }
 
-  private async handleSessionDelete(event: { topic: string }) {
+  public async handleSessionDelete(event: { topic: string }) {
     try {
-      const { topic } = event;
-      const chatId = this.findChatIdForSession(topic);
-
-      if (chatId) {
-        const chatWallet = this.getChatWallet(chatId);
-        chatWallet.wcSessions.delete(topic);
-
-        await this.whatsappClient.sendMessage(
-          chatId,
-          "🔌 *WalletConnect Session Ended*\n\nThe dApp has disconnected from your wallet."
-        );
+      const chatId = this.findChatIdForSession(event.topic);
+      if (!chatId) {
+        console.error("No chat ID found for session:", event.topic);
+        return;
       }
+
+      const chatWallet = this.getChatWallet(chatId);
+      chatWallet.wcSessions.delete(event.topic);
+
+      if (this.signClient) {
+        await this.signClient.disconnect({
+          topic: event.topic,
+          reason: {
+            code: 6000,
+            message: "User disconnected",
+          },
+        });
+      }
+
+      console.log("Session deleted successfully:", event.topic);
     } catch (error) {
-      console.error("Error handling session deletion:", error);
+      console.error("Error handling session delete:", error);
     }
   }
 
@@ -464,7 +472,7 @@ export class WalletManager {
                 ? `${chain.blockExplorers.default.url}/tx/${hash}`
                 : null;
 
-              await this.whatsappClient.sendMessage(
+              await this.client.sendMessage(
                 chatId,
                 "✅ *Transaction Sent*\n\n" +
                   `*Network:* ${chain.name}\n` +
@@ -487,7 +495,7 @@ export class WalletManager {
                 },
               });
 
-              await this.whatsappClient.sendMessage(
+              await this.client.sendMessage(
                 chatId,
                 "✅ *Message Signed*\n\n" +
                   `*Network:* ${chain.name}\n` +
@@ -505,7 +513,7 @@ export class WalletManager {
               errorMessage += String(error);
             }
 
-            await this.whatsappClient.sendMessage(
+            await this.client.sendMessage(
               chatId,
               "❌ *Transaction Failed*\n\n" + errorMessage
             );
@@ -523,7 +531,7 @@ export class WalletManager {
             },
           });
 
-          await this.whatsappClient.sendMessage(
+          await this.client.sendMessage(
             chatId,
             "❌ *Request Rejected*\n\nYou have rejected the request."
           );
@@ -534,7 +542,7 @@ export class WalletManager {
     } catch (error) {
       console.error("Error handling reaction:", error);
       const chatId = reaction.msgId.remote;
-      await this.whatsappClient.sendMessage(
+      await this.client.sendMessage(
         chatId,
         "❌ *Error*\n\n" +
           "Something went wrong while processing your request.\n" +
